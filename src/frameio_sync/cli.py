@@ -11,6 +11,7 @@ from . import sinks, source
 from .config import load_config, read_json, write_json
 
 SEEN = "seen.json"
+SINKS = ("apple_photos", "google_photos")
 
 
 def baseline(cfg: dict) -> None:
@@ -24,6 +25,8 @@ def baseline(cfg: dict) -> None:
 
 
 def sync(cfg: dict) -> None:
+    if not any(name in cfg for name in SINKS):
+        raise SystemExit(f"no target configured: add one of {SINKS} to config.toml")
     client = source.client(cfg["frameio"]["client_id"])
     google = (
         sinks.GooglePhotos.open(cfg["google_photos"]["album"]) if "google_photos" in cfg else None

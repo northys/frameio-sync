@@ -1,6 +1,8 @@
 from pathlib import Path
 from types import SimpleNamespace as NS
 
+import pytest
+
 from frameio_sync import cli, sinks, source
 
 
@@ -100,6 +102,11 @@ def test_sync_continues_after_a_failed_group(monkeypatch):
     cli.sync({"frameio": {"client_id": "c"}, "apple_photos": {"album": "A"}})
     assert imported == ["good.jpg"]
     assert saved == {"seen.json": ["good"]}
+
+
+def test_sync_refuses_to_run_without_a_target():
+    with pytest.raises(SystemExit, match="no target configured"):
+        cli.sync({"frameio": {"client_id": "c"}})
 
 
 class FakeSession:
