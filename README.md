@@ -5,7 +5,7 @@ Copies new photos from [Frame.io](https://frame.io) into Google Photos or
 
 Made for Camera to Cloud: the camera uploads to Frame.io, and this tool puts every finished
 shot into your own photo library without you touching a file. It talks to the Frame.io V4 API
-and runs as a Docker container that syncs every 5 minutes.
+and runs as a Docker container that syncs every 5 minutes and serves a status page.
 
 ## What it does
 
@@ -17,9 +17,12 @@ and runs as a Docker container that syncs every 5 minutes.
   same name and size in the same folder counts as the same photo.
 - If a shot fails to upload, the run logs the error and retries it next time; the other
   shots are not held back.
+- The status page (port 8787 on the host) shows the current run, the queue of shots
+  waiting in it, the issues (failed shots with their error, expired logins) and the
+  migrated shots. It keeps the last 300 events across restarts.
 - State lives in `~/.config/frameio-sync/` (or `$FRAMEIO_SYNC_STATE`): the config, the OAuth
-  tokens, the Google album id and `seen.json` with the ids of synced files. The container
-  mounts that directory as `/data`.
+  tokens, the Google album id, `seen.json` with the ids of synced files and `events.json`
+  behind the status page. The container mounts that directory as `/data`.
 
 ## Requirements
 
@@ -78,7 +81,7 @@ and runs as a Docker container that syncs every 5 minutes.
    uv run frameio-sync baseline
    ```
 
-5. Build and start the container:
+5. Build and start the container, then open the status page at http://localhost:8787:
 
    ```sh
    docker compose up -d --build
@@ -86,7 +89,8 @@ and runs as a Docker container that syncs every 5 minutes.
 
 ## Troubleshooting
 
-Read the logs with `docker compose logs -f`.
+The status page lists every failure with its error. The same lines go to
+`docker compose logs -f`.
 
 - `Frame.io login expired` or `Google login expired`: run the named `login` command again
   on the host. The container picks up the new token on its next run.

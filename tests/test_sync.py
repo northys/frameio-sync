@@ -1,9 +1,10 @@
+import urllib.request
 from pathlib import Path
 from types import SimpleNamespace as NS
 
 import pytest
 
-from frameio_sync import cli, sinks, source
+from frameio_sync import cli, sinks, source, web
 
 
 def _file(
@@ -90,7 +91,13 @@ class FakeUploader:
         self.uploaded.append(path.name)
 
 
-def _run_sync(monkeypatch, tree, uploader, saved):
+def _status(monkeypatch, saved):
+    monkeypatch.setattr(web, "read_json", lambda name, default: [])
+    monkeypatch.setattr(web, "write_json", lambda name, data: saved.update({name: list(data)}))
+    return web.Status()
+
+
+def _run_sync(monkeypatch, tree, uploader, saved, status=None):
     dests = []
 
     def download(url, dest):
@@ -104,7 +111,7 @@ def _run_sync(monkeypatch, tree, uploader, saved):
     monkeypatch.setattr(cli.sinks.Immich, "open", lambda **kwargs: uploader)
     monkeypatch.setattr(cli, "read_json", lambda name, default: [])
     monkeypatch.setattr(cli, "write_json", lambda name, data: saved.update({name: data}))
-    cli.sync({"frameio": {"client_id": "c"}, "immich": {}})
+    cli.sync({"frameio": {"client_id": "c"}, "immich": {}}, status or _status(monkeypatch, saved))
     return dests
 
 
@@ -113,7 +120,15 @@ def test_sync_continues_after_a_failed_group(monkeypatch):
     uploader, saved = FakeUploader(), {}
     _run_sync(monkeypatch, tree, uploader, saved)
     assert uploader.uploaded == ["good.jpg"]
-    assert saved == {"seen.json": ["good"]}
+    assert saved["seen.json"] == ["good"]
+    events = [(e["kind"], e["names"]) for e in saved["events.json"]]
+    assert events == [("synced", "good.jpg"), ("failed", "bad.jpg")]
+    assert saved["events.json"][1]["error"] == "RuntimeError: boom"
+
+
+def test_describe_strips_presigned_query_strings():
+    error = RuntimeError("403 for url: https://cdn/x.jpg?X-Amz-Signature=abc and more")
+    assert cli._describe(error) == "RuntimeError: 403 for url: https://cdn/x.jpg?… and more"
 
 
 def test_sync_keeps_downloads_inside_the_temp_dir(monkeypatch):
@@ -124,7 +139,7 @@ def test_sync_keeps_downloads_inside_the_temp_dir(monkeypatch):
 
 def test_sync_refuses_to_run_without_a_target():
     with pytest.raises(SystemExit, match="no target configured"):
-        cli.sync({"frameio": {"client_id": "c"}})
+        cli.sync({"frameio": {"client_id": "c"}}, None)
 
 
 class FakeSession:
@@ -198,3 +213,33 @@ def test_immich_upload_raises_when_album_add_fails(tmp_path: Path):
     session = FakeImmichSession({"id": "asset-1", "success": False, "error": "no_permission"})
     with pytest.raises(RuntimeError, match="p.jpg"):
         sinks.Immich(session, "https://immich/api", "album-1").upload(photo, "image/jpeg")
+
+
+def test_status_page_shows_queue_issues_and_migrated(monkeypatch):
+    status = _status(monkeypatch, {})
+    status.begin()
+    status.queue = ["DSCF0001.JPG", "DSCF0002.JPG"]
+    status.event("synced", "DSCF0001.JPG")
+    status.event("failed", "DSCF0002.JPG", "<boom>")
+    status.event("issue", "", "login expired")
+    html = web.page(status.snapshot())
+    assert "Running since" in html
+    assert "Queue (0)" in html
+    assert "Issues (2)" in html and "&lt;boom&gt;" in html and "login expired" in html
+    assert "Migrated (1)" in html
+    status.finish(300)
+    assert "Idle. Last run" in web.page(status.snapshot())
+
+
+def test_status_page_served_over_http_after_a_sync(monkeypatch):
+    tree = {"root": [_file("bad", "bad.jpg"), _file("good", "good.jpg")], "other-root": []}
+    saved = {}
+    status = _status(monkeypatch, saved)
+    port = web.serve(status, 0)
+    _run_sync(monkeypatch, tree, FakeUploader(), saved, status)
+    status.finish(300)
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/") as response:
+        html = response.read().decode()
+    assert "Idle. Last run" in html
+    assert "Migrated (1)" in html and "good.jpg" in html
+    assert "Issues (1)" in html and "RuntimeError: boom" in html
