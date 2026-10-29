@@ -90,6 +90,8 @@ Read the logs with `docker compose logs -f`.
 
 - `Frame.io login expired` or `Google login expired`: run the named `login` command again
   on the host. The container picks up the new token on its next run.
+- Do not run `sync` by hand while the container is running. Two runs at once upload the
+  same shots twice and trip the Google Photos rate limit.
 - Large accounts: every run lists every folder of the synced projects. Set `projects` in
   the config to keep the run short and within the Frame.io rate limit.
 
