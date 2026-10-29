@@ -1,5 +1,4 @@
 import json
-import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -9,35 +8,6 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 
 from .config import read_json, write_json
-
-PHOTOS_IMPORT = """
-on run argv
-    set albumName to item 1 of argv
-    set imports to {}
-    repeat with p in items 2 thru -1 of argv
-        set end of imports to POSIX file (contents of p)
-    end repeat
-    with timeout of 900 seconds
-        tell application "Photos"
-            if not (exists album albumName) then make new album named albumName
-            import imports into album albumName skip check duplicates true
-        end tell
-    end timeout
-end run
-"""
-
-
-def apple_photos_import(paths: list[Path], album: str) -> None:
-    """One call per group so Photos keeps a JPG+RAW pair as a single asset."""
-    result = subprocess.run(
-        ["osascript", "-e", PHOTOS_IMPORT, album, *map(str, paths)],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        names = ", ".join(p.name for p in paths)
-        raise RuntimeError(f"Photos import failed for {names}: {result.stderr.strip()}")
-
 
 GOOGLE_SCOPES = ["https://www.googleapis.com/auth/photoslibrary.appendonly"]
 GOOGLE_API = "https://photoslibrary.googleapis.com/v1"

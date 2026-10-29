@@ -80,32 +80,17 @@ def test_new_files_without_project_filter_covers_all_projects():
     assert [f.id for g in groups for f, _ in g] == ["a", "b"]
 
 
-def test_sync_continues_after_a_failed_group(monkeypatch):
-    tree = {"root": [_file("bad", "bad.jpg"), _file("good", "good.jpg")], "other-root": []}
-    imported, saved = [], {}
+class FakeUploader:
+    def __init__(self):
+        self.uploaded = []
 
-    def download(url, dest):
-        dest.parent.mkdir(parents=True)
-        dest.write_bytes(b"jpeg")
-        return dest
-
-    def photos_import(paths, album):
-        if paths[0].name == "bad.jpg":
+    def upload(self, path, mime_type):
+        if path.name == "bad.jpg":
             raise RuntimeError("boom")
-        imported.append(paths[0].name)
-
-    monkeypatch.setattr(cli.source, "client", lambda client_id: FakeClient(tree))
-    monkeypatch.setattr(cli.source, "download", download)
-    monkeypatch.setattr(cli.sinks, "apple_photos_import", photos_import)
-    monkeypatch.setattr(cli, "read_json", lambda name, default: [])
-    monkeypatch.setattr(cli, "write_json", lambda name, data: saved.update({name: data}))
-    cli.sync({"frameio": {"client_id": "c"}, "apple_photos": {"album": "A"}})
-    assert imported == ["good.jpg"]
-    assert saved == {"seen.json": ["good"]}
+        self.uploaded.append(path.name)
 
 
-def test_sync_keeps_downloads_inside_the_temp_dir(monkeypatch):
-    tree = {"root": [_file("evil", "../../escape.jpg")], "other-root": []}
+def _run_sync(monkeypatch, tree, uploader, saved):
     dests = []
 
     def download(url, dest):
@@ -116,10 +101,24 @@ def test_sync_keeps_downloads_inside_the_temp_dir(monkeypatch):
 
     monkeypatch.setattr(cli.source, "client", lambda client_id: FakeClient(tree))
     monkeypatch.setattr(cli.source, "download", download)
-    monkeypatch.setattr(cli.sinks, "apple_photos_import", lambda paths, album: None)
+    monkeypatch.setattr(cli.sinks.Immich, "open", lambda **kwargs: uploader)
     monkeypatch.setattr(cli, "read_json", lambda name, default: [])
-    monkeypatch.setattr(cli, "write_json", lambda name, data: None)
-    cli.sync({"frameio": {"client_id": "c"}, "apple_photos": {"album": "A"}})
+    monkeypatch.setattr(cli, "write_json", lambda name, data: saved.update({name: data}))
+    cli.sync({"frameio": {"client_id": "c"}, "immich": {}})
+    return dests
+
+
+def test_sync_continues_after_a_failed_group(monkeypatch):
+    tree = {"root": [_file("bad", "bad.jpg"), _file("good", "good.jpg")], "other-root": []}
+    uploader, saved = FakeUploader(), {}
+    _run_sync(monkeypatch, tree, uploader, saved)
+    assert uploader.uploaded == ["good.jpg"]
+    assert saved == {"seen.json": ["good"]}
+
+
+def test_sync_keeps_downloads_inside_the_temp_dir(monkeypatch):
+    tree = {"root": [_file("evil", "../../escape.jpg")], "other-root": []}
+    dests = _run_sync(monkeypatch, tree, FakeUploader(), {})
     assert [(d.parent.name, d.name) for d in dests] == [("evil", "escape.jpg")]
 
 
