@@ -1,8 +1,9 @@
 import json
+import os
 import tomllib
 from pathlib import Path
 
-STATE_DIR = Path.home() / "Library/Application Support/frameio-sync"
+STATE_DIR = Path(os.environ.get("FRAMEIO_SYNC_STATE", Path.home() / ".config/frameio-sync"))
 CONFIG_PATH = STATE_DIR / "config.toml"
 
 

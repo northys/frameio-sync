@@ -1,0 +1,7 @@
+services:
+  frameio-sync:
+    image: frameio-sync
+    build: .
+    restart: unless-stopped
+    volumes:
+      - ~/.config/frameio-sync:/data
