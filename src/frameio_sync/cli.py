@@ -11,7 +11,7 @@ from . import sinks, source
 from .config import load_config, read_json, write_json
 
 SEEN = "seen.json"
-SINKS = ("apple_photos", "google_photos")
+SINKS = ("apple_photos", "google_photos", "immich")
 
 
 def baseline(cfg: dict) -> None:
@@ -28,15 +28,17 @@ def sync(cfg: dict) -> None:
     if not any(name in cfg for name in SINKS):
         raise SystemExit(f"no target configured: add one of {SINKS} to config.toml")
     client = source.client(cfg["frameio"]["client_id"])
-    google = (
-        sinks.GooglePhotos.open(cfg["google_photos"]["album"]) if "google_photos" in cfg else None
-    )
+    uploaders = []
+    if "google_photos" in cfg:
+        uploaders.append(sinks.GooglePhotos.open(cfg["google_photos"]["album"]))
+    if "immich" in cfg:
+        uploaders.append(sinks.Immich.open(**cfg["immich"]))
     seen = set(read_json(SEEN, []))
     with tempfile.TemporaryDirectory() as tmp:
         for group in source.new_files(client, seen, cfg["frameio"].get("projects")):
             names = ", ".join(file.name for file, _ in group)
             try:
-                _sync_group(cfg, google, group, Path(tmp))
+                _sync_group(cfg, uploaders, group, Path(tmp))
             except RefreshError:
                 raise
             except Exception:
@@ -48,13 +50,13 @@ def sync(cfg: dict) -> None:
             print("synced:", names, flush=True)
 
 
-def _sync_group(cfg: dict, google: sinks.GooglePhotos | None, group: list, tmp: Path) -> None:
+def _sync_group(cfg: dict, uploaders: list, group: list, tmp: Path) -> None:
     paths = [source.download(url, tmp / file.id / file.name) for file, url in group]
     if "apple_photos" in cfg:
         sinks.apple_photos_import(paths, cfg["apple_photos"]["album"])
-    if google:
+    for uploader in uploaders:
         for (file, _), path in zip(group, paths, strict=True):
-            google.upload(path, file.media_type)
+            uploader.upload(path, file.media_type)
     for path in paths:
         path.unlink()
 

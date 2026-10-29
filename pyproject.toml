@@ -1,7 +1,7 @@
 [project]
 name = "frameio-sync"
 version = "0.1.0"
-description = "Download new photos from Frame.io into Apple Photos and Google Photos"
+description = "Download new photos from Frame.io into Apple Photos, Google Photos or Immich"
 authors = [
     { name = "northys", email = "northys@pm.me" }
 ]

@@ -145,3 +145,38 @@ def test_google_upload_raises_on_rejected_item(tmp_path: Path):
         assert "p.jpg" in str(e)
     else:
         raise AssertionError("expected RuntimeError")
+
+
+class FakeImmichSession:
+    def __init__(self, album_result):
+        self.album_result = album_result
+        self.calls = []
+
+    def post(self, url, **kwargs):
+        self.calls.append(("POST", url, kwargs))
+        return NS(raise_for_status=lambda: None, json=lambda: {"id": "asset-1"})
+
+    def put(self, url, **kwargs):
+        self.calls.append(("PUT", url, kwargs))
+        return NS(raise_for_status=lambda: None, json=lambda: [self.album_result])
+
+
+def test_immich_upload_adds_asset_to_album(tmp_path: Path):
+    photo = tmp_path / "p.jpg"
+    photo.write_bytes(b"jpeg")
+    session = FakeImmichSession({"id": "asset-1", "success": False, "error": "duplicate"})
+    sinks.Immich(session, "https://immich/api", "album-1").upload(photo, "image/jpeg")
+    (_, upload_url, upload), (_, album_url, album) = session.calls
+    assert upload_url == "https://immich/api/assets"
+    assert upload["data"]["deviceAssetId"] == "p.jpg-4"
+    assert upload["files"]["assetData"][0] == "p.jpg"
+    assert album_url == "https://immich/api/albums/album-1/assets"
+    assert album["json"] == {"ids": ["asset-1"]}
+
+
+def test_immich_upload_raises_when_album_add_fails(tmp_path: Path):
+    photo = tmp_path / "p.jpg"
+    photo.write_bytes(b"jpeg")
+    session = FakeImmichSession({"id": "asset-1", "success": False, "error": "no_permission"})
+    with pytest.raises(RuntimeError, match="p.jpg"):
+        sinks.Immich(session, "https://immich/api", "album-1").upload(photo, "image/jpeg")

@@ -1,11 +1,12 @@
 # frameio-sync
 
-Polls Frame.io (V4 API) for new image files and imports each one into Apple Photos
-and Google Photos. State and tokens live in `~/Library/Application Support/frameio-sync/`.
+Polls Frame.io (V4 API) for new image files and imports each one into Apple Photos,
+Google Photos and/or Immich. State and tokens live in `~/Library/Application Support/frameio-sync/`.
 
 ## Setup
 
-1. Write `~/Library/Application Support/frameio-sync/config.toml`:
+1. Write `~/Library/Application Support/frameio-sync/config.toml`. Every target section is
+   optional; keep the ones you use (at least one):
 
    ```toml
    [frameio]
@@ -19,18 +20,23 @@ and Google Photos. State and tokens live in `~/Library/Application Support/frame
    client_id = "<Google Cloud OAuth desktop client id>"
    client_secret = "<its client secret>"
    album = "Frame.io"
+
+   [immich]
+   url = "https://immich.example.com"
+   api_key = "<Immich API key from Account Settings>"
+   album = "Frame.io"
    ```
 
-   Drop the `[apple_photos]` or `[google_photos]` section to disable that target.
    The Adobe credential must be an OAuth app with `http://localhost:17865/callback`
    as a redirect URI. The Google client needs the Photos Library API enabled and the
-   `photoslibrary.appendonly` scope on its consent screen.
+   `photoslibrary.appendonly` scope on its consent screen. The Immich key needs the
+   `asset.upload`, `album.read`, `album.create` and `albumAsset.create` permissions.
 
-2. Sign in once per service. Each opens a browser tab and stores a refresh token:
+2. Sign in once per OAuth service. Each opens a browser tab and stores a refresh token:
 
    ```sh
    uv run frameio-sync login frameio
-   uv run frameio-sync login google
+   uv run frameio-sync login google      # only with [google_photos]
    ```
 
 3. Decide what to do with files already in Frame.io. To skip them:
@@ -39,8 +45,8 @@ and Google Photos. State and tokens live in `~/Library/Application Support/frame
    uv run frameio-sync baseline
    ```
 
-4. Run once by hand (macOS asks for Photos automation permission the first time),
-   then install the launchd job that runs every 5 minutes:
+4. Run once by hand (with `[apple_photos]`, macOS asks for Photos automation permission
+   the first time), then install the launchd job that runs every 5 minutes:
 
    ```sh
    uv run frameio-sync sync

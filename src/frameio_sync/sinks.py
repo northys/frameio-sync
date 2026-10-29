@@ -1,7 +1,9 @@
 import json
 import subprocess
+from datetime import UTC, datetime
 from pathlib import Path
 
+import requests
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -104,3 +106,50 @@ class GooglePhotos:
         status = response.json()["newMediaItemResults"][0]["status"]
         if status.get("code", 0) != 0:
             raise RuntimeError(f"Google Photos rejected {path.name}: {status}")
+
+
+class Immich:
+    def __init__(self, session, api: str, album_id: str):
+        self.session = session
+        self.api = api
+        self.album_id = album_id
+
+    @classmethod
+    def open(cls, url: str, api_key: str, album: str) -> "Immich":
+        session = requests.Session()
+        session.headers["x-api-key"] = api_key
+        api = url.rstrip("/") + "/api"
+        response = session.get(f"{api}/albums", timeout=60)
+        response.raise_for_status()
+        for existing in response.json():
+            if existing["albumName"] == album:
+                return cls(session, api, existing["id"])
+        response = session.post(f"{api}/albums", json={"albumName": album}, timeout=60)
+        response.raise_for_status()
+        return cls(session, api, response.json()["id"])
+
+    def upload(self, path: Path, mime_type: str) -> None:
+        stat = path.stat()
+        modified = datetime.fromtimestamp(stat.st_mtime, UTC).isoformat()
+        with path.open("rb") as f:
+            response = self.session.post(
+                f"{self.api}/assets",
+                files={"assetData": (path.name, f, mime_type)},
+                data={
+                    "deviceAssetId": f"{path.name}-{stat.st_size}",
+                    "deviceId": "frameio-sync",
+                    "fileCreatedAt": modified,
+                    "fileModifiedAt": modified,
+                },
+                timeout=600,
+            )
+        response.raise_for_status()
+        response = self.session.put(
+            f"{self.api}/albums/{self.album_id}/assets",
+            json={"ids": [response.json()["id"]]},
+            timeout=60,
+        )
+        response.raise_for_status()
+        result = response.json()[0]
+        if not result["success"] and result.get("error") != "duplicate":
+            raise RuntimeError(f"Immich album add failed for {path.name}: {result['error']}")
