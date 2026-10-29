@@ -104,6 +104,25 @@ def test_sync_continues_after_a_failed_group(monkeypatch):
     assert saved == {"seen.json": ["good"]}
 
 
+def test_sync_keeps_downloads_inside_the_temp_dir(monkeypatch):
+    tree = {"root": [_file("evil", "../../escape.jpg")], "other-root": []}
+    dests = []
+
+    def download(url, dest):
+        dests.append(dest)
+        dest.parent.mkdir(parents=True)
+        dest.write_bytes(b"jpeg")
+        return dest
+
+    monkeypatch.setattr(cli.source, "client", lambda client_id: FakeClient(tree))
+    monkeypatch.setattr(cli.source, "download", download)
+    monkeypatch.setattr(cli.sinks, "apple_photos_import", lambda paths, album: None)
+    monkeypatch.setattr(cli, "read_json", lambda name, default: [])
+    monkeypatch.setattr(cli, "write_json", lambda name, data: None)
+    cli.sync({"frameio": {"client_id": "c"}, "apple_photos": {"album": "A"}})
+    assert [(d.parent.name, d.name) for d in dests] == [("evil", "escape.jpg")]
+
+
 def test_sync_refuses_to_run_without_a_target():
     with pytest.raises(SystemExit, match="no target configured"):
         cli.sync({"frameio": {"client_id": "c"}})

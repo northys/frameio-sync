@@ -51,7 +51,7 @@ def sync(cfg: dict) -> None:
 
 
 def _sync_group(cfg: dict, uploaders: list, group: list, tmp: Path) -> None:
-    paths = [source.download(url, tmp / file.id / file.name) for file, url in group]
+    paths = [source.download(url, tmp / file.id / Path(file.name).name) for file, url in group]
     if "apple_photos" in cfg:
         sinks.apple_photos_import(paths, cfg["apple_photos"]["album"])
     for uploader in uploaders:
