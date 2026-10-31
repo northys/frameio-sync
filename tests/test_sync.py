@@ -243,3 +243,51 @@ def test_status_page_served_over_http_after_a_sync(monkeypatch):
     assert "Idle. Last run" in html
     assert "Migrated (1)" in html and "good.jpg" in html
     assert "Issues (1)" in html and "RuntimeError: boom" in html
+
+
+def test_prune_deletes_oldest_synced_files_until_under_the_limit(monkeypatch):
+    def file(id, size, day):
+        return ("acc", NS(id=id, name=f"{id}.jpg", file_size=size, created_at=day))
+
+    listed = [file("new", 4, 3), file("old", 4, 1), file("unsynced", 4, 0), file("mid", 4, 2)]
+    deleted = []
+    client = NS(files=NS(delete=lambda account_id, file_id: deleted.append(file_id)))
+    status = _status(monkeypatch, {})
+    cli.prune(client, listed, {"old", "mid", "new"}, 9, status)
+    assert deleted == ["old", "mid"]
+    assert status.events[0]["kind"] == "pruned"
+    assert status.events[0]["names"].startswith("2 files")
+
+
+def test_prune_stops_at_the_per_run_cap(monkeypatch):
+    listed = [
+        ("acc", NS(id=str(i), name=f"{i}.jpg", file_size=1, created_at=i)) for i in range(100)
+    ]
+    deleted = []
+    client = NS(files=NS(delete=lambda account_id, file_id: deleted.append(file_id)))
+    cli.prune(client, listed, {str(i) for i in range(100)}, 0, _status(monkeypatch, {}))
+    assert len(deleted) == cli.PRUNE_PER_RUN
+
+
+def test_sync_records_synced_files_and_prunes_when_keep_gb_is_set(monkeypatch):
+    tree = {"root": [_file("good", "good.jpg", size=10**9)], "other-root": []}
+    saved, deleted = {}, []
+    client = FakeClient(tree)
+    client.files.delete = lambda account_id, file_id: deleted.append(file_id)
+    for item in tree["root"]:
+        item.created_at = 1
+    monkeypatch.setattr(cli.source, "client", lambda client_id: client)
+    monkeypatch.setattr(cli.source, "download", lambda url, dest: _write(dest))
+    monkeypatch.setattr(cli.sinks.Immich, "open", lambda **kwargs: FakeUploader())
+    monkeypatch.setattr(cli, "read_json", lambda name, default: [])
+    monkeypatch.setattr(cli, "write_json", lambda name, data: saved.update({name: data}))
+    cfg = {"frameio": {"client_id": "c", "keep_gb": 0.5}, "immich": {}}
+    cli.sync(cfg, _status(monkeypatch, saved))
+    assert saved["synced.json"] == ["good"]
+    assert deleted == ["good"]
+
+
+def _write(dest):
+    dest.parent.mkdir(parents=True)
+    dest.write_bytes(b"jpeg")
+    return dest

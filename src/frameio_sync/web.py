@@ -79,6 +79,7 @@ def page(s: dict) -> str:
         state = f"Idle. Last run {e(last)}, next run {e(next_)}"
     issues = [ev for ev in s["events"] if ev["error"]]
     migrated = [ev for ev in s["events"] if ev["kind"] == "synced"]
+    pruned = [ev for ev in s["events"] if ev["kind"] == "pruned"]
     return f"""<!doctype html>
 <meta charset="utf-8"><meta http-equiv="refresh" content="30">
 <title>frameio-sync</title><style>{STYLE}</style>
@@ -90,6 +91,8 @@ def page(s: dict) -> str:
 {_table([[e(ev["time"]), e(ev["names"]), f"<pre>{e(ev['error'])}</pre>"] for ev in issues])}
 <h2>Migrated ({len(migrated)})</h2>
 {_table([[e(ev["time"]), e(ev["names"])] for ev in migrated])}
+<h2>Deleted from Frame.io ({len(pruned)})</h2>
+{_table([[e(ev["time"]), e(ev["names"])] for ev in pruned])}
 """
 
 

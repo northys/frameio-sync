@@ -13,6 +13,8 @@ from . import sinks, source, web
 from .config import load_config, read_json, write_json
 
 SEEN = "seen.json"
+SYNCED = "synced.json"
+PRUNE_PER_RUN = 90
 SINKS = ("google_photos", "immich")
 INTERVAL = 300
 PORT = 8080
@@ -41,7 +43,9 @@ def sync(cfg: dict, status: web.Status) -> None:
     if "immich" in cfg:
         uploaders.append(sinks.Immich.open(**cfg["immich"]))
     seen = set(read_json(SEEN, []))
-    groups = list(source.new_files(client, seen, cfg["frameio"].get("projects")))
+    synced = set(read_json(SYNCED, []))
+    listed = []
+    groups = list(source.new_files(client, seen, cfg["frameio"].get("projects"), listed))
     status.queue = [_names(group) for group in groups]
     with tempfile.TemporaryDirectory() as tmp:
         for group in groups:
@@ -56,9 +60,32 @@ def sync(cfg: dict, status: web.Status) -> None:
                 status.event("failed", names, _describe(e))
                 continue
             seen.update(file.id for file, _ in group)
+            synced.update(file.id for file, _ in group)
             write_json(SEEN, sorted(seen))
+            write_json(SYNCED, sorted(synced))
             print("synced:", names, flush=True)
             status.event("synced", names)
+    if "keep_gb" in cfg["frameio"]:
+        prune(client, listed, synced, int(cfg["frameio"]["keep_gb"] * 1e9), status)
+
+
+# shortcut: counts head versions only, older versions in a version stack also use storage
+def prune(client, listed: list, synced: set[str], keep_bytes: int, status: web.Status) -> None:
+    """Delete the oldest synced files until the walked files fit in keep_bytes."""
+    total = sum(file.file_size or 0 for _, file in listed)
+    deleted, freed = [], 0
+    for account_id, file in sorted(listed, key=lambda item: item[1].created_at):
+        if total - freed <= keep_bytes or len(deleted) == PRUNE_PER_RUN:
+            break
+        if file.id not in synced:
+            continue
+        client.files.delete(account_id, file.id)
+        deleted.append(file.name)
+        freed += file.file_size or 0
+    if deleted:
+        summary = f"{len(deleted)} files, {freed / 1e9:.2f} GB: {deleted[0]} to {deleted[-1]}"
+        print("pruned:", summary, flush=True)
+        status.event("pruned", summary)
 
 
 def _names(group: list) -> str:

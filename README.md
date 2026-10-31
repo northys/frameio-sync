@@ -20,9 +20,15 @@ and runs as a Docker container that syncs every 5 minutes and serves a status pa
 - The status page (port 8787 on the host) shows the current run, the queue of shots
   waiting in it, the issues (failed shots with their error, expired logins) and the
   migrated shots. It keeps the last 300 events across restarts.
+- With `keep_gb` set, each run deletes the oldest files from Frame.io until the synced
+  projects hold no more than that, so the account fits a plan with little storage.
+  `1.6` keeps a free 2 GB plan at 80%. Only files this tool has uploaded are deleted,
+  never files that are still waiting or were skipped with `baseline`. A run deletes at
+  most 90 files, to stay under the Frame.io limit of 100 deletes per minute.
 - State lives in `~/.config/frameio-sync/` (or `$FRAMEIO_SYNC_STATE`): the config, the OAuth
-  tokens, the Google album id, `seen.json` with the ids of synced files and `events.json`
-  behind the status page. The container mounts that directory as `/data`.
+  tokens, the Google album id, `seen.json` with the ids of handled files, `synced.json` with
+  the ids of uploaded files and `events.json` behind the status page. The container mounts
+  that directory as `/data`.
 
 ## Requirements
 
@@ -54,6 +60,7 @@ and runs as a Docker container that syncs every 5 minutes and serves a status pa
    [frameio]
    client_id = "<Adobe Developer Console client id>"
    # projects = ["Only this project"]   # omit to sync every project in every workspace
+   # keep_gb = 1.6   # delete the oldest uploaded files once the projects hold more than this
 
    [google_photos]
    client_id = "<Google Cloud OAuth desktop client id>"
